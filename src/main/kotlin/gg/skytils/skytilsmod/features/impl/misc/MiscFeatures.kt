@@ -56,6 +56,7 @@ import net.minecraft.entity.effect.EntityLightningBolt
 import net.minecraft.entity.item.EntityArmorStand
 import net.minecraft.entity.item.EntityFallingBlock
 import net.minecraft.entity.item.EntityItem
+import net.minecraft.entity.monster.EntityCreeper
 import net.minecraft.event.ClickEvent
 import net.minecraft.event.HoverEvent
 import net.minecraft.init.Blocks
@@ -255,6 +256,8 @@ object MiscFeatures {
             if (Skytils.config.hidePlayersInSpawn && event.entity.position == hubSpawnPoint && SBInfo.mode == SkyblockIsland.Hub.mode) {
                 event.isCanceled = true
             }
+        } else if (event.entity is EntityCreeper && Skytils.config.moreVisibleGhosts && SBInfo.mode == "mining_3") {
+            event.entity.isInvisible = false
         } else if (Skytils.deobfEnvironment && DevTools.getToggle("invis")) {
             event.entity.isInvisible = false
             (event.entity as? AccessorEntityArmorstand)?.invokeSetShowArms(true)
