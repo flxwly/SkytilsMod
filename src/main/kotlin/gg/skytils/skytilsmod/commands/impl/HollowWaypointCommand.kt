@@ -21,6 +21,7 @@ package gg.skytils.skytilsmod.commands.impl
 import gg.essential.universal.UChat
 import gg.essential.universal.wrappers.message.UMessage
 import gg.essential.universal.wrappers.message.UTextComponent
+import gg.skytils.skytilsmod.Skytils
 import gg.skytils.skytilsmod.Skytils.Companion.failPrefix
 import gg.skytils.skytilsmod.Skytils.Companion.mc
 import gg.skytils.skytilsmod.Skytils.Companion.prefix
@@ -35,6 +36,53 @@ import net.minecraft.util.BlockPos
 import net.minecraft.util.IChatComponent
 
 object HollowWaypointCommand : BaseCommand("skytilshollowwaypoint", listOf("sthw")) {
+
+    private val diamondVeins: HashMap<String, BlockPos> = hashMapOf(
+        "DV-1" to BlockPos(19, 29, 22),
+        "DV-2" to BlockPos(34, 48, -35),
+        "DV-3" to BlockPos(-3, 67, 22),
+        "DV-4" to BlockPos(-31, 51, 40),
+        "DV-5" to BlockPos(-17, 41, 42),
+        "DV-6" to BlockPos(-19, -38, -17),
+        "DV-7" to BlockPos(-13, -38, -24),
+        "DV-8" to BlockPos(-14, -35, -40),
+        "DV-9" to BlockPos(-10, -36, -48),
+        "DV-10" to BlockPos(-22, -38, -38),
+        "DV-11" to BlockPos(-28, -37, -43),
+        "DV-12" to BlockPos(-31, -37, -38),
+        "DV-13" to BlockPos(-41, -38, -43),
+        "DV-14" to BlockPos(-47, -35, -37),
+        "DV-15" to BlockPos(-45, -35, -29),
+        "DV-16" to BlockPos(-42, -35, -19),
+        "DV-17" to BlockPos(-28, -35, -9),
+        "DV-18" to BlockPos(-25, -22, -3),
+        "DV-19" to BlockPos(-34, -22, -3),
+        "DV-20" to BlockPos(-34, -22, 3),
+        "DV-21" to BlockPos(-25, -22, 3),
+        "DV-22" to BlockPos(-16, -38, 0),
+        "DV-23" to BlockPos(-27, -36, 19),
+        "DV-24" to BlockPos(-37, -37, 22),
+        "DV-25" to BlockPos(-44, -35, 28),
+        "DV-26" to BlockPos(-43, -34, 32),
+        "DV-27" to BlockPos(-29, -37, 35),
+        "DV-28" to BlockPos(22, -34, 47),
+        "DV-29" to BlockPos(32, -35, 36),
+        "DV-30" to BlockPos(29, -35, 28),
+        "DV-31" to BlockPos(40, -35, 22),
+        "DV-32" to BlockPos(22, -38, 17),
+        "DV-33" to BlockPos(32, -34, -15),
+        "DV-34" to BlockPos(38, -28, -15),
+        "DV-35" to BlockPos(42, -35, -13),
+        "DV-36" to BlockPos(37, -38, -31),
+        "DV-37" to BlockPos(46, -34, -38),
+        "DV-38" to BlockPos(31, -35, -45),
+        "DV-39" to BlockPos(21, -32, -45),
+        "DV-40" to BlockPos(20, -38, -41),
+        "DV-41" to BlockPos(17, -38, -29),
+        "DV-42" to BlockPos(10, -38, -26)
+    )
+
+
     private val syntaxRegex =
         Regex("^(?:(?:(?<x>-?[\\d.]+) (?<y>-?[\\d.]+) (?<z>-?[\\d.]+) (?<name>.+))|(?<nameonly>.+))\$")
 
@@ -107,6 +155,12 @@ object HollowWaypointCommand : BaseCommand("skytilshollowwaypoint", listOf("sthw
                     MiningFeatures.CrystalHollowsMap.Locations.values().forEach { it.loc.reset() }
                     MiningFeatures.waypoints.clear()
                     UChat.chat("$successPrefix §aSuccessfully cleared all waypoints.")
+                }
+
+                "divan_diamonds" -> {
+                    for ((key, value) in diamondVeins.entries) {
+                        MiningFeatures.waypoints[key] = value.add(mc.thePlayer.position)
+                    }
                 }
 
                 else -> {

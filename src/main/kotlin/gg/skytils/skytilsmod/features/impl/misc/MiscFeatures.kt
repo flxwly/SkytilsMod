@@ -256,8 +256,8 @@ object MiscFeatures {
             if (Skytils.config.hidePlayersInSpawn && event.entity.position == hubSpawnPoint && SBInfo.mode == SkyblockIsland.Hub.mode) {
                 event.isCanceled = true
             }
-        } else if (event.entity is EntityCreeper && Skytils.config.moreVisibleGhosts && SBInfo.mode == "mining_3") {
-            event.entity.isInvisible = false
+        //} else if (event.entity is EntityCreeper && Skytils.config.moreVisibleGhosts && SBInfo.mode == "mining_3") {
+        //    event.entity.isInvisible = false
         } else if (Skytils.deobfEnvironment && DevTools.getToggle("invis")) {
             event.entity.isInvisible = false
             (event.entity as? AccessorEntityArmorstand)?.invokeSetShowArms(true)
