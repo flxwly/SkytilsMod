@@ -1266,6 +1266,13 @@ object Config : Vigilant(
     var chTreasureHelper = false
 
     @Property(
+        type = PropertyType.SWITCH, name = "Corleone Respawn Timer",
+        description = "Helps you open treasure chests in the Crystal Hollows.",
+        category = "Mining", subcategory = "Crystal Hollows"
+    )
+    var corleoneTimer = false
+
+    @Property(
         type = PropertyType.SWITCH, name = "Chat Tabs",
         description = "Creates various tabs to organize chat.",
         category = "Miscellaneous", subcategory = "Chat Tabs"

@@ -39,6 +39,7 @@ import gg.skytils.skytilsmod.features.impl.farming.GardenFeatures
 import gg.skytils.skytilsmod.features.impl.farming.TreasureHunter
 import gg.skytils.skytilsmod.features.impl.farming.VisitorHelper
 import gg.skytils.skytilsmod.features.impl.handlers.*
+import gg.skytils.skytilsmod.features.impl.mining.CorleoneTimer
 import gg.skytils.skytilsmod.features.impl.mining.MiningFeatures
 import gg.skytils.skytilsmod.features.impl.mining.StupidTreasureChestOpeningThing
 import gg.skytils.skytilsmod.features.impl.misc.*
@@ -300,6 +301,7 @@ class Skytils {
             MayorJerry,
             MayorJerryTracker,
             MiningFeatures,
+            CorleoneTimer,
             MinionFeatures,
             MiscFeatures,
             MythologicalTracker,
