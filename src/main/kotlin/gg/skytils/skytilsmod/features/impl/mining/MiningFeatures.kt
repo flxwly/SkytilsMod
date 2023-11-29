@@ -366,6 +366,11 @@ object MiningFeatures {
         }
     }
 
+    /**
+     * Handles the event when the scoreboard changes.
+     *
+     * @param event The receive event packet.
+     */
     @SubscribeEvent
     fun onScoreboardChange(event: PacketEvent.ReceiveEvent) {
         if (

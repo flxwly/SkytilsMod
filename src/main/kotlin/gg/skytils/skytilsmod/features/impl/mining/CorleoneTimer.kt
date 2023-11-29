@@ -28,30 +28,27 @@ import gg.skytils.skytilsmod.utils.Utils
 import gg.skytils.skytilsmod.utils.baseMaxHealth
 import gg.skytils.skytilsmod.utils.graphics.SmartFontRenderer
 import gg.skytils.skytilsmod.utils.graphics.colors.CommonColors
-import io.ktor.server.sessions.*
+import gg.skytils.skytilsmod.utils.graphics.colors.CustomColor
 import net.minecraft.client.entity.EntityOtherPlayerMP
-import net.minecraft.entity.EntityLivingBase
-import net.minecraft.entity.monster.EntityZombie
-import net.minecraftforge.client.event.RenderLivingEvent
 import net.minecraftforge.event.entity.living.LivingDeathEvent
-import net.minecraftforge.event.entity.living.LivingSpawnEvent
 import net.minecraftforge.event.world.WorldEvent
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent
-import net.minecraftforge.fml.common.gameevent.TickEvent
 import net.minecraftforge.fml.common.gameevent.TickEvent.ClientTickEvent
 
+/**
+ * Represents a timer for tracking the spawn time of the Corleone boss.
+ */
 object CorleoneTimer {
-    var soundDelayTicks = 0
-    const val second = 1000000000L // one s in ns to convert nanoTime()
+    private var soundDelayTicks = 0
+    private const val SECOND_IN_NS = 1000000000L
+    private const val MIN_SPAWN_TIME = 60L
+    private const val MAX_SPAWN_TIME = 120L
+    private const val MAX_TIME = 240L
 
-    const val minSpawnTime = 60 // in s
-    const val maxSpawnTime = 120 // in s
-    const val maxTime = 240 // in s
-
-    var lastDeath = 0L
-    var nextMinSpawn = 0L
-    var nextMaxSpawn = 0L
-    var foundCorleone = false
+    private var lastDeath = 0L
+    private var nextMinSpawn = 0L
+    private var nextMaxSpawn = 0L
+    private var isCorleoneFound = false
 
     init {
         CorleoneTimerGuiElement()
@@ -62,7 +59,7 @@ object CorleoneTimer {
         lastDeath = -1L
         nextMinSpawn = -1L
         nextMaxSpawn = -1L
-        foundCorleone = false
+        isCorleoneFound = false
     }
 
     @SubscribeEvent
@@ -70,87 +67,142 @@ object CorleoneTimer {
         reset()
     }
 
-    @SubscribeEvent()
-    fun onEntityDeath(event: LivingDeathEvent) {
-        println(event.entity.name)
-        if (!Utils.inSkyblock) return
-        if (Skytils.config.corleoneTimer
-            && event.entity.name == "Team Treasurite"
-            && (event.entity as EntityOtherPlayerMP).baseMaxHealth == if (MayorInfo.mayorPerks.contains("DOUBLE MOBS HP!!!")) 2_000_000.0 else 1_000_000.0
-        ) {
-            lastDeath = System.nanoTime() / second
-            nextMinSpawn = lastDeath + minSpawnTime
-            nextMaxSpawn = lastDeath + maxSpawnTime
-            foundCorleone = true
-        }
-    }
-
+    /**
+     * Method to handle entity death events.
+     *
+     * This method is subscribed to the LivingDeathEvent. It checks if the event is triggered in the
+     * Skyblock and if the Corleone timer is enabled in the Skytils configuration. It further checks if
+     * the entity that died is a "Team Treasurite". If any of these conditions are not met, the method
+     * returns and does nothing.
+     *
+     * If the entity that died is a "Team Treasurite", it retrieves its maximum health and compares it
+     * with the expected health based on the mayor perks. If the health values do not match, the method
+     * returns and does nothing.
+     *
+     * If both the entity and the health values match the expected values, it updates the spawn time
+     * and sets the isCorleoneFound flag to true.
+     *
+     * @param event The LivingDeathEvent triggered when an entity dies.
+     */
     @SubscribeEvent
-    fun onTick(event: TickEvent.ClientTickEvent) {
-        if (Utils.inSkyblock
-            && Skytils.config.corleoneTimer
-            && SBInfo.mode == SkyblockIsland.CrystalHollows.mode
-            && foundCorleone
-            && (System.nanoTime() / second) - nextMaxSpawn >= 0
-        ) {
-            if (soundDelayTicks <= 0) {
-                soundDelayTicks = 20 * 5
-                SoundQueue.addToQueue("random.orb", 0.5f, isLoud = true)
-            } else {
-                soundDelayTicks--
-            }
-        }
+    fun handleEntityDeath(event: LivingDeathEvent) {
+        if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || event.entity.name != "Team Treasurite") return
+
+        val entityHealth = (event.entity as EntityOtherPlayerMP).baseMaxHealth
+        val expectedHealth = if (MayorInfo.mayorPerks.contains("DOUBLE MOBS HP!!!")) 2_000_000.0 else 1_000_000.0
+
+        if (entityHealth != expectedHealth) return
+
+        updateSpawnTime()
+        isCorleoneFound = true
     }
 
+    /**
+     * Updates the spawn time for the next Corleone boss.
+     * The spawn time is calculated based on the current time and the minimum and maximum spawn time values.
+     *
+     * This method sets the `lastDeath` variable to the current time in seconds.
+     * It then calculates the `nextMinSpawn` and `nextMaxSpawn` variables by adding the minimum and maximum spawn time values to the `lastDeath` variable.
+     *
+     * This method does not return any value.
+     */
+    private fun updateSpawnTime() {
+        lastDeath = System.nanoTime() / SECOND_IN_NS
+        nextMinSpawn = lastDeath + MIN_SPAWN_TIME
+        nextMaxSpawn = lastDeath + MAX_SPAWN_TIME
+    }
+
+
+    /**
+     * This method is a listener for the ClientTickEvent event. It is triggered every tick in the game.
+     * It checks if various conditions are met and plays a sound effect if those conditions are true.
+     *
+     * @param event The ClientTickEvent that triggered this method
+     */
+    @SubscribeEvent
+    fun onTick(event: ClientTickEvent) {
+        if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || !isCorleoneFound
+            || SBInfo.mode != SkyblockIsland.CrystalHollows.mode ||
+            System.nanoTime() / SECOND_IN_NS - nextMaxSpawn < 0
+        ) return
+
+        if (soundDelayTicks <= 0) {
+            soundDelayTicks = 20 * 5
+            SoundQueue.addToQueue("random.orb", 0.5f, isLoud = true)
+        } else {
+            soundDelayTicks--
+        }
+
+    }
+
+    /**
+     * Represents a GUI element for displaying the Corleone spawn timer.
+     *
+     * @property toggled Indicates whether the Corleone timer is toggled on or off.
+     * @property height The height of the GUI element.
+     * @property width The width of the GUI element.
+     *
+     * @constructor Creates a CorleoneTimerGuiElement instance and registers it with the GUI manager.
+     */
     class CorleoneTimerGuiElement : GuiElement(name = "Corleone Spawn Timer", x = 10, y = 10) {
+
+        /**
+         * This method is responsible for rendering Corleone spawn information in the game.
+         * It checks the necessary conditions for rendering and displays relevant messages accordingly.
+         * This method should be called whenever a refresh or update is required to display accurate information.
+         */
         override fun render() {
-            if (Utils.inSkyblock
-                && SBInfo.mode == SkyblockIsland.CrystalHollows.mode
-                && toggled && foundCorleone) {
-                val time = System.nanoTime() / second
+            if (!Utils.inSkyblock || !toggled || !isCorleoneFound || SBInfo.mode != SkyblockIsland.CrystalHollows.mode) return
 
-                val min = nextMinSpawn - time
-                val max = nextMaxSpawn - time
+            val time = System.nanoTime() / SECOND_IN_NS
+            val min = nextMinSpawn - time
+            val max = nextMaxSpawn - time
 
-                if (min > 0) {
-                    fr.drawString(
-                        "Waiting for spawn... (${min / 60}:" +
-                                "${"%02d".format(min % 60)})",
-                        0f,
-                        0f,
-                        CommonColors.BLUE,
-                        SmartFontRenderer.TextAlignment.LEFT_RIGHT,
-                        SmartFontRenderer.TextShadow.NONE
-                    )
-                } else if (max > 0) {
-                    fr.drawString(
-                        "Corleone is spawning... (${(max) / 60}:" +
-                                "${"%02d".format((max) % 60)})",
-                        0f,
-                        0f,
-                        CommonColors.YELLOW,
-                        SmartFontRenderer.TextAlignment.LEFT_RIGHT,
-                        SmartFontRenderer.TextShadow.NONE
-                    )
-                } else if (lastDeath + maxTime > time) {
-                    fr.drawString(
-                        "Corleone is spawning... (${(time - nextMaxSpawn) / 60}:" +
-                                "${"%02d".format((time - nextMaxSpawn) % 60)})",
-                        0f,
-                        0f,
-                        CommonColors.RED,
-                        SmartFontRenderer.TextAlignment.LEFT_RIGHT,
-                        SmartFontRenderer.TextShadow.NONE
-                    )
-                } else {
-                    reset()
-                }
+            when {
+                min > 0 -> drawStringWithFormat("Waiting for spawn... ", min, CommonColors.BLUE)
+                max > 0 -> drawStringWithFormat("Corleone is spawning... ", max, CommonColors.YELLOW)
+                lastDeath + MAX_TIME > time -> drawStringWithFormat(
+                    "Corleone is spawning... ",
+                    time - nextMaxSpawn,
+                    CommonColors.RED
+                )
+
+                else -> reset()
             }
         }
 
+        /**
+         * Draws a formatted string with a specific label, time, and color.
+         *
+         * @param label the label to be displayed
+         * @param time the time in seconds
+         * @param color the color of the text
+         */
+        private fun drawStringWithFormat(label: String, time: Long, color: CustomColor) =
+            fr.drawString(
+                "$label (${time / 60}:${"%02d".format(time % 60)})",
+                0f,
+                0f,
+                color,
+                SmartFontRenderer.TextAlignment.LEFT_RIGHT,
+                SmartFontRenderer.TextShadow.NONE
+            )
+
+        /**
+         * Renders the "Corleone is spawning..." message on the screen.
+         *
+         * This method overrides the parent class's `demoRender` method and uses the `fr` instance
+         * of `SmartFontRenderer` to draw the message. The message will be rendered at the coordinate
+         * (0, 0) with the specified color, alignment, and text shadow settings.
+         *
+         * @see SmartFontRenderer
+         * @see CommonColors
+         * @see SmartFontRenderer.TextAlignment
+         * @see SmartFontRenderer.TextShadow
+         */
         override fun demoRender() {
             fr.drawString(
-                "99:99",
+                "Corleone is spawning... ",
                 0f,
                 0f,
                 CommonColors.ORANGE,
