@@ -29,16 +29,18 @@ import gg.skytils.skytilsmod.utils.graphics.colors.CommonColors
 import gg.skytils.skytilsmod.utils.graphics.colors.CustomColor
 import net.minecraft.client.entity.EntityOtherPlayerMP
 import net.minecraft.client.renderer.GlStateManager
+import net.minecraft.entity.EntityLivingBase
 import net.minecraft.entity.monster.EntityZombie
-import net.minecraft.util.AxisAlignedBB
-import net.minecraft.util.BlockPos
-import net.minecraft.util.Vec3i
+import net.minecraft.util.*
+import net.minecraftforge.client.event.RenderLivingEvent
 import net.minecraftforge.client.event.RenderWorldLastEvent
 import net.minecraftforge.event.entity.living.LivingDeathEvent
 import net.minecraftforge.event.world.WorldEvent
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent
+import net.minecraftforge.fml.common.gameevent.TickEvent
 import net.minecraftforge.fml.common.gameevent.TickEvent.ClientTickEvent
 import java.awt.Color
+import kotlin.random.Random
 
 /**
  * Represents a timer for tracking the spawn time of the Corleone boss.
@@ -49,29 +51,55 @@ object CorleoneTimer {
     private const val MAX_SPAWN_TIME = 120L
     private const val MAX_TIME = 240L
 
-    private const val soundDelay = 100L // in Ticks
+    private const val soundDelay = 400L // in Ticks
+
+    private var lastSeen = 0L
+    private var soundDelayTicks = 0L
 
 
-    private class CorleoneSpawn(var pos: BlockPos) {
-        var lastDeath = 0L
-        var nextMinSpawn = 0L
-        var nextMaxSpawn = 0L
-        var soundDelayTicks = 0L
+    /**
+     * The `CorleoneSpawn` class represents a spawn point for Corleone entities. It keeps track of the position, spawn time,
+     * sound delay, and state of the spawn.
+     *
+     * @property position The position of the spawn point.
+     * @property lastDeath The timestamp of the last death at the spawn point.
+     * @property nextMinSpawn The timestamp indicating the earliest time at which a new entity can spawn.
+     * @property nextMaxSpawn The timestamp indicating the latest time at which a new entity can spawn.
+     * @property soundDelayTicks The number of ticks remaining for the sound delay.
+     */
+    private class CorleoneSpawn(
+        var position: BlockPos,
+        var lastDeath: Long = 0L,
+        var nextMinSpawn: Long = 0L,
+        var nextMaxSpawn: Long = 0L,
+        private var soundDelayTicks: Long = 0L
+    ) {
 
         init {
             updateSpawnTime()
         }
 
-        fun isSameSpawnAndUpdate(newPos: BlockPos): Boolean {
-            if (pos.distanceSq(newPos) <= 400) {
-                pos = BlockPos(
-                    (pos.x + newPos.x) / 2,
-                    (pos.y + newPos.y) / 2,
-                    (pos.z + newPos.z) / 2
-                )
-                return true
-            }
-            return false
+        private fun BlockPos.average(newPosition: BlockPos): BlockPos {
+            return BlockPos(
+                (x + newPosition.x) / 2,
+                (y + newPosition.y) / 2,
+                (z + newPosition.z) / 2
+            )
+        }
+
+        /**
+         * Checks if the given position is within a certain distance of the current position.
+         *
+         * @param newPosition The new position to be compared with the current position.
+         * @return true if the distance between the current position and the new position is less than or equal to 400,
+         *         false otherwise.
+         */
+        fun isSameSpawn(newPosition: BlockPos): Boolean {
+            return position.distanceSq(newPosition) <= 400
+        }
+
+        fun updateSpawn(newPosition: BlockPos) {
+            position.average(newPosition)
         }
 
         fun updateSpawnTime() {
@@ -89,21 +117,20 @@ object CorleoneTimer {
         fun getState(): State {
             val time = System.nanoTime() / SECOND_IN_NS
             return when {
-                nextMinSpawn - time > 0 -> State.DEAD
-                nextMaxSpawn - time > 0 -> State.SPAWNING
+                nextMinSpawn > time -> State.DEAD
+                nextMaxSpawn > time -> State.SPAWNING
                 else -> State.SPAWN_OVERDUE
             }
         }
 
         fun shouldPlaySound(): Boolean {
-            if (getState() == State.SPAWN_OVERDUE) {
-                if (soundDelayTicks == 0L) {
-                    soundDelayTicks = soundDelay
-                    return true
-                }
+            return if (getState() == State.SPAWN_OVERDUE && soundDelayTicks <= 0L) {
+                soundDelayTicks = soundDelay
+                true
+            } else {
                 soundDelayTicks--
+                false
             }
-            return false
         }
     }
 
@@ -123,36 +150,48 @@ object CorleoneTimer {
         reset()
     }
 
+
     /**
-     * Method to handle entity death events.
+     * Handles the death of an entity in the game.
      *
-     * This method is subscribed to the LivingDeathEvent. It checks if the event is triggered in the
-     * Skyblock and if the Corleone timer is enabled in the Skytils configuration. It further checks if
-     * the entity that died is a "Team Treasurite". If any of these conditions are not met, the method
-     * returns and does nothing.
+     * This method is subscribed to the LivingDeathEvent and is responsible for handling the death of an entity.
+     * It checks if certain conditions are met before performing any action.
+     * If the game is not in Skyblock mode, if the Corleone timer is not enabled, or if the killed entity is not
+     * a "Team Treasurite", the method will return without taking any action.
+     * Otherwise, it calculates the health of the entity and compares it to the expected health values.
+     * If the calculated health is not within the expected values, the method will return without taking any action.
+     * If the entity's spawn location is found in the list of corleoneSpawns, the spawn time for that location
+     * will be updated. Otherwise, a new CorleoneSpawn object will be created and added to the list.
      *
-     * If the entity that died is a "Team Treasurite", it retrieves its maximum health and compares it
-     * with the expected health based on the mayor perks. If the health values do not match, the method
-     * returns and does nothing.
-     *
-     * If both the entity and the health values match the expected values, it updates the spawn time
-     * and sets the isCorleoneFound flag to true.
-     *
-     * @param event The LivingDeathEvent triggered when an entity dies.
+     * @param event The LivingDeathEvent object representing the death event.
      */
     @SubscribeEvent
     fun handleEntityDeath(event: LivingDeathEvent) {
         if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || event.entity.name != "Team Treasurite") return
 
         val entityHealth = (event.entity as EntityOtherPlayerMP).baseMaxHealth
-        val expectedHealth = if (MayorInfo.mayorPerks.contains("DOUBLE MOBS HP!!!")) 2_000_000.0 else 1_000_000.0
+        val expectedHealthValues = arrayOf(1_000_000.0, 2_000_000.0, 4_000_000.0, 8_000_000.0)
 
-        if (entityHealth != expectedHealth) return
+        if (entityHealth !in expectedHealthValues) return
 
-        if (event.entity !is EntityZombie) return
+        val spawn: CorleoneSpawn? = corleoneSpawns.find { it.isSameSpawn(event.entity.position) }
 
-        if (corleoneSpawns.find { it.isSameSpawnAndUpdate(event.entity.position) }?.updateSpawnTime() == null)
+        if (spawn?.updateSpawnTime() != null)
+            spawn.updateSpawn(event.entity.position)
+        else
             corleoneSpawns.add(CorleoneSpawn(event.entity.position))
+    }
+
+    @SubscribeEvent
+    fun onRenderLivingPre(event: RenderLivingEvent.Pre<EntityLivingBase?>) {
+        if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || event.entity.name != "Team Treasurite") return
+
+        val entityHealth = (event.entity as EntityOtherPlayerMP).baseMaxHealth
+        val expectedHealthValues = arrayOf(1_000_000.0, 2_000_000.0, 4_000_000.0, 8_000_000.0)
+
+        if (entityHealth !in expectedHealthValues) return
+
+        lastSeen = System.nanoTime() / SECOND_IN_NS
     }
 
 
@@ -166,26 +205,49 @@ object CorleoneTimer {
     fun onTick(event: ClientTickEvent) {
         if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || corleoneSpawns.isEmpty() || SBInfo.mode != SkyblockIsland.CrystalHollows.mode) return
 
-
         val time = System.nanoTime() / SECOND_IN_NS
         corleoneSpawns.removeIf { it.lastDeath + MAX_TIME < time }
 
         for (spawn in corleoneSpawns) {
             if (spawn.shouldPlaySound())
-                SoundQueue.addToQueue("random.orb", 0.5f, isLoud = true)
+                playBossMusic()
+        }
+
+        if (lastSeen + 1 > time && soundDelayTicks <= 0) {
+            soundDelayTicks = soundDelay
+            playBossMusic()
+        } else {
+            soundDelayTicks--
         }
     }
 
     /**
-     * Represents a GUI element for displaying the Corleone spawn timer.
+     * Plays the boss music.
      *
-     * @property toggled Indicates whether the Corleone timer is toggled on or off.
-     * @property height The height of the GUI element.
-     * @property width The width of the GUI element.
+     * This method adds specific sound notes to the sound queue in order to create the boss music. Each note has a corresponding
+     * tick and loudness specified. The notes are added in a specific order to create the desired musical effect.
      *
-     * @constructor Creates a CorleoneTimerGuiElement instance and registers it with the GUI manager.
+     * @see SoundQueue
+     * @see SoundQueue.addToQueue
      */
+    private fun playBossMusic() {
+        SoundQueue.addToQueue("random.orb", 1.05f, ticks=0)
+        SoundQueue.addToQueue("random.orb", 1.05f, ticks=5)
+        SoundQueue.addToQueue("random.orb", 1.05f, ticks=10)
+        SoundQueue.addToQueue("random.orb", 0.85f, ticks=15)
 
+        SoundQueue.addToQueue("random.orb", 0.95f, ticks=40)
+        SoundQueue.addToQueue("random.orb", 0.95f, ticks=45)
+        SoundQueue.addToQueue("random.orb", 0.95f, ticks=50)
+        SoundQueue.addToQueue("random.orb", 0.8f, ticks=55)
+    }
+
+
+    /**
+     * Subscribes to the RenderWorldLastEvent and renders Corleone spawns in the Crystal Hollows Skyblock island.
+     *
+     * @param event The RenderWorldLastEvent triggered by Minecraft.
+     */
     @SubscribeEvent
     fun onRenderWorld(event: RenderWorldLastEvent) {
         if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || corleoneSpawns.isEmpty() || SBInfo.mode != SkyblockIsland.CrystalHollows.mode) return
@@ -193,20 +255,22 @@ object CorleoneTimer {
 
         GlStateManager.disableDepth()
         val time = System.nanoTime() / SECOND_IN_NS
-        for (spawn in corleoneSpawns) {
-            val label = when (spawn.getState()) {
-                CorleoneSpawn.State.SPAWNING -> stringWithFormat("Waiting for spawn... ", spawn.nextMinSpawn - time)
-                CorleoneSpawn.State.DEAD -> stringWithFormat("Corleone is spawning... ", spawn.nextMaxSpawn - time)
-                else -> stringWithFormat("Corleone is spawning... ", time - spawn.nextMaxSpawn)
+        corleoneSpawns.forEach {
+            val min = it.nextMinSpawn - time
+            val max = it.nextMaxSpawn - time
+
+            val pos = Vec3(it.position).addVector(0.5, 0.5, 0.5)
+
+            val (label, color) = when {
+                min > 0 -> "Waiting for spawn... $max" to Color.GREEN
+                max > 0 -> "Corleone is spawning... $max" to Color.YELLOW
+                else -> "Corleone is spawning... ${time - it.nextMaxSpawn}" to Color.RED
             }
-            RenderUtil.renderWaypointText(label, spawn.pos, event.partialTicks, matrixStack)
+
+            RenderUtil.drawLabel(pos, label, color, event.partialTicks, matrixStack)
         }
 
         GlStateManager.enableDepth()
 
-    }
-
-    private fun stringWithFormat(label: String, time: Long): String {
-        return "$label (${time / 60}:${"%02d".format(time % 60)})"
     }
 }
