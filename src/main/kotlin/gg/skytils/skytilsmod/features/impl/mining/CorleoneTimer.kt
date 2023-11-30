@@ -18,48 +18,104 @@
 
 package gg.skytils.skytilsmod.features.impl.mining
 
+import gg.essential.universal.UMatrixStack
 import gg.skytils.skytilsmod.Skytils
 import gg.skytils.skytilsmod.core.SoundQueue
 import gg.skytils.skytilsmod.core.structure.GuiElement
 import gg.skytils.skytilsmod.features.impl.handlers.MayorInfo
-import gg.skytils.skytilsmod.utils.SBInfo
-import gg.skytils.skytilsmod.utils.SkyblockIsland
-import gg.skytils.skytilsmod.utils.Utils
-import gg.skytils.skytilsmod.utils.baseMaxHealth
+import gg.skytils.skytilsmod.utils.*
 import gg.skytils.skytilsmod.utils.graphics.SmartFontRenderer
 import gg.skytils.skytilsmod.utils.graphics.colors.CommonColors
 import gg.skytils.skytilsmod.utils.graphics.colors.CustomColor
 import net.minecraft.client.entity.EntityOtherPlayerMP
+import net.minecraft.client.renderer.GlStateManager
+import net.minecraft.entity.monster.EntityZombie
+import net.minecraft.util.AxisAlignedBB
+import net.minecraft.util.BlockPos
+import net.minecraft.util.Vec3i
+import net.minecraftforge.client.event.RenderWorldLastEvent
 import net.minecraftforge.event.entity.living.LivingDeathEvent
 import net.minecraftforge.event.world.WorldEvent
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent
 import net.minecraftforge.fml.common.gameevent.TickEvent.ClientTickEvent
+import java.awt.Color
 
 /**
  * Represents a timer for tracking the spawn time of the Corleone boss.
  */
 object CorleoneTimer {
-    private var soundDelayTicks = 0
     private const val SECOND_IN_NS = 1000000000L
     private const val MIN_SPAWN_TIME = 60L
     private const val MAX_SPAWN_TIME = 120L
     private const val MAX_TIME = 240L
 
-    private var lastDeath = 0L
-    private var nextMinSpawn = 0L
-    private var nextMaxSpawn = 0L
-    private var isCorleoneFound = false
+    private const val soundDelay = 100L // in Ticks
+
+
+    private class CorleoneSpawn(var pos: BlockPos) {
+        var lastDeath = 0L
+        var nextMinSpawn = 0L
+        var nextMaxSpawn = 0L
+        var soundDelayTicks = 0L
+
+        init {
+            updateSpawnTime()
+        }
+
+        fun isSameSpawnAndUpdate(newPos: BlockPos): Boolean {
+            if (pos.distanceSq(newPos) <= 400) {
+                pos = BlockPos(
+                    (pos.x + newPos.x) / 2,
+                    (pos.y + newPos.y) / 2,
+                    (pos.z + newPos.z) / 2
+                )
+                return true
+            }
+            return false
+        }
+
+        fun updateSpawnTime() {
+            lastDeath = System.nanoTime() / SECOND_IN_NS
+            nextMinSpawn = lastDeath + MIN_SPAWN_TIME
+            nextMaxSpawn = lastDeath + MAX_SPAWN_TIME
+        }
+
+        enum class State {
+            DEAD,
+            SPAWNING,
+            SPAWN_OVERDUE
+        }
+
+        fun getState(): State {
+            val time = System.nanoTime() / SECOND_IN_NS
+            return when {
+                nextMinSpawn - time > 0 -> State.DEAD
+                nextMaxSpawn - time > 0 -> State.SPAWNING
+                else -> State.SPAWN_OVERDUE
+            }
+        }
+
+        fun shouldPlaySound(): Boolean {
+            if (getState() == State.SPAWN_OVERDUE) {
+                if (soundDelayTicks == 0L) {
+                    soundDelayTicks = soundDelay
+                    return true
+                }
+                soundDelayTicks--
+            }
+            return false
+        }
+    }
+
+
+    private var corleoneSpawns = arrayListOf<CorleoneSpawn>()
 
     init {
-        CorleoneTimerGuiElement()
         reset()
     }
 
     private fun reset() {
-        lastDeath = -1L
-        nextMinSpawn = -1L
-        nextMaxSpawn = -1L
-        isCorleoneFound = false
+        corleoneSpawns.clear()
     }
 
     @SubscribeEvent
@@ -93,23 +149,10 @@ object CorleoneTimer {
 
         if (entityHealth != expectedHealth) return
 
-        updateSpawnTime()
-        isCorleoneFound = true
-    }
+        if (event.entity !is EntityZombie) return
 
-    /**
-     * Updates the spawn time for the next Corleone boss.
-     * The spawn time is calculated based on the current time and the minimum and maximum spawn time values.
-     *
-     * This method sets the `lastDeath` variable to the current time in seconds.
-     * It then calculates the `nextMinSpawn` and `nextMaxSpawn` variables by adding the minimum and maximum spawn time values to the `lastDeath` variable.
-     *
-     * This method does not return any value.
-     */
-    private fun updateSpawnTime() {
-        lastDeath = System.nanoTime() / SECOND_IN_NS
-        nextMinSpawn = lastDeath + MIN_SPAWN_TIME
-        nextMaxSpawn = lastDeath + MAX_SPAWN_TIME
+        if (corleoneSpawns.find { it.isSameSpawnAndUpdate(event.entity.position) }?.updateSpawnTime() == null)
+            corleoneSpawns.add(CorleoneSpawn(event.entity.position))
     }
 
 
@@ -121,18 +164,16 @@ object CorleoneTimer {
      */
     @SubscribeEvent
     fun onTick(event: ClientTickEvent) {
-        if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || !isCorleoneFound
-            || SBInfo.mode != SkyblockIsland.CrystalHollows.mode ||
-            System.nanoTime() / SECOND_IN_NS - nextMaxSpawn < 0
-        ) return
+        if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || corleoneSpawns.isEmpty() || SBInfo.mode != SkyblockIsland.CrystalHollows.mode) return
 
-        if (soundDelayTicks <= 0) {
-            soundDelayTicks = 20 * 5
-            SoundQueue.addToQueue("random.orb", 0.5f, isLoud = true)
-        } else {
-            soundDelayTicks--
+
+        val time = System.nanoTime() / SECOND_IN_NS
+        corleoneSpawns.removeIf { it.lastDeath + MAX_TIME < time }
+
+        for (spawn in corleoneSpawns) {
+            if (spawn.shouldPlaySound())
+                SoundQueue.addToQueue("random.orb", 0.5f, isLoud = true)
         }
-
     }
 
     /**
@@ -144,83 +185,28 @@ object CorleoneTimer {
      *
      * @constructor Creates a CorleoneTimerGuiElement instance and registers it with the GUI manager.
      */
-    class CorleoneTimerGuiElement : GuiElement(name = "Corleone Spawn Timer", x = 10, y = 10) {
 
-        /**
-         * This method is responsible for rendering Corleone spawn information in the game.
-         * It checks the necessary conditions for rendering and displays relevant messages accordingly.
-         * This method should be called whenever a refresh or update is required to display accurate information.
-         */
-        override fun render() {
-            if (!Utils.inSkyblock || !toggled || !isCorleoneFound || SBInfo.mode != SkyblockIsland.CrystalHollows.mode) return
+    @SubscribeEvent
+    fun onRenderWorld(event: RenderWorldLastEvent) {
+        if (!Utils.inSkyblock || !Skytils.config.corleoneTimer || corleoneSpawns.isEmpty() || SBInfo.mode != SkyblockIsland.CrystalHollows.mode) return
+        val matrixStack = UMatrixStack()
 
-            val time = System.nanoTime() / SECOND_IN_NS
-            val min = nextMinSpawn - time
-            val max = nextMaxSpawn - time
-
-            when {
-                min > 0 -> drawStringWithFormat("Waiting for spawn... ", min, CommonColors.BLUE)
-                max > 0 -> drawStringWithFormat("Corleone is spawning... ", max, CommonColors.YELLOW)
-                lastDeath + MAX_TIME > time -> drawStringWithFormat(
-                    "Corleone is spawning... ",
-                    time - nextMaxSpawn,
-                    CommonColors.RED
-                )
-
-                else -> reset()
+        GlStateManager.disableDepth()
+        val time = System.nanoTime() / SECOND_IN_NS
+        for (spawn in corleoneSpawns) {
+            val label = when (spawn.getState()) {
+                CorleoneSpawn.State.SPAWNING -> stringWithFormat("Waiting for spawn... ", spawn.nextMinSpawn - time)
+                CorleoneSpawn.State.DEAD -> stringWithFormat("Corleone is spawning... ", spawn.nextMaxSpawn - time)
+                else -> stringWithFormat("Corleone is spawning... ", time - spawn.nextMaxSpawn)
             }
+            RenderUtil.renderWaypointText(label, spawn.pos, event.partialTicks, matrixStack)
         }
 
-        /**
-         * Draws a formatted string with a specific label, time, and color.
-         *
-         * @param label the label to be displayed
-         * @param time the time in seconds
-         * @param color the color of the text
-         */
-        private fun drawStringWithFormat(label: String, time: Long, color: CustomColor) =
-            fr.drawString(
-                "$label (${time / 60}:${"%02d".format(time % 60)})",
-                0f,
-                0f,
-                color,
-                SmartFontRenderer.TextAlignment.LEFT_RIGHT,
-                SmartFontRenderer.TextShadow.NONE
-            )
+        GlStateManager.enableDepth()
 
-        /**
-         * Renders the "Corleone is spawning..." message on the screen.
-         *
-         * This method overrides the parent class's `demoRender` method and uses the `fr` instance
-         * of `SmartFontRenderer` to draw the message. The message will be rendered at the coordinate
-         * (0, 0) with the specified color, alignment, and text shadow settings.
-         *
-         * @see SmartFontRenderer
-         * @see CommonColors
-         * @see SmartFontRenderer.TextAlignment
-         * @see SmartFontRenderer.TextShadow
-         */
-        override fun demoRender() {
-            fr.drawString(
-                "Corleone is spawning... ",
-                0f,
-                0f,
-                CommonColors.ORANGE,
-                SmartFontRenderer.TextAlignment.LEFT_RIGHT,
-                SmartFontRenderer.TextShadow.NONE
-            )
-        }
+    }
 
-        override val toggled: Boolean
-            get() = Skytils.config.corleoneTimer
-        override val height: Int
-            get() = fr.FONT_HEIGHT
-        override val width: Int
-            get() = fr.getStringWidth("Corleone is spawning... (99:99)")
-
-        init {
-            Skytils.guiManager.registerElement(this)
-        }
-
+    private fun stringWithFormat(label: String, time: Long): String {
+        return "$label (${time / 60}:${"%02d".format(time % 60)})"
     }
 }
