@@ -20,10 +20,19 @@ package gg.skytils.skytilsmod.core
 
 import gg.skytils.event.Events
 import gg.skytils.event.impl.TickEvent
+import gg.skytils.skytilsmod.Skytils.Companion.mc
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import java.util.concurrent.Executor
+
+
+val mcDispatcher = (mc as Executor).asCoroutineDispatcher()
+val mcScope = CoroutineScope(mcDispatcher) + SupervisorJob() + CoroutineName("Skytils MC")
+
+val Dispatchers.MC
+    get() = mcDispatcher
 
 private object Tick : CoroutineScope {
     @OptIn(DelicateCoroutinesApi::class)
@@ -40,6 +49,8 @@ fun <T> tickTask(ticks: Int, repeats: Boolean = false, task: () -> T) =
     flow {
         do {
             Events.await<TickEvent>(ticks)
-            emit(task())
+            emit(withContext(Dispatchers.MC) {
+                task()
+            })
         } while (repeats)
     }.flowOn(Tick.dispatcher)
